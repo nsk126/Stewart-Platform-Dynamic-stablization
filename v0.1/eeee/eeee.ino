@@ -16,16 +16,33 @@ Quaternion q;
 
 const float topm = 7.727;
 const float basem = 9.659;
-const uint8_t IMUAddress = 0x68; 
-const uint16_t I2C_TIMEOUT = 1000; 
+const uint8_t IMUAddress = 0x68;
+const uint16_t I2C_TIMEOUT = 1000;
+
+/*
+   Base:
+   A1 - @ 0 deg
+   A2 - 9.95 deg from A1 & System
+   A3 - 9.95 + 110.05 = 120 deg from System
+   A4 - 129.95 deg
+   A5 - 240 deg
+   A6 - 249.95 deg
+*/
+
+#define A1 0
+#define A2 9.95*M_PI/180
+#define A3 120*M_PI/180
+#define A4 129.95*M_PI/180
+#define A5 240*M_PI/180
+#define A6 249.95*M_PI/180
 
 const float bk[6][3] = {
-  {basem * cos(M_PI / 12), basem * sin(M_PI / 12), 0},
-  {basem * cos(7 * M_PI / 12), basem * sin(7 * M_PI / 12), 0},
-  {basem * cos(9 * M_PI / 12), basem * sin(9 * M_PI / 12), 0},
-  {basem * cos(15 * M_PI / 12), basem * sin(15 * M_PI / 12), 0},
-  {basem * cos(17 * M_PI / 12), basem * sin(17 * M_PI / 12), 0},
-  {basem * cos(23 * M_PI / 12), basem * sin(23 * M_PI / 12), 0},
+  {basem * cos(A1), basem * sin(A1), 0},
+  {basem * cos(A2), basem * sin(A2), 0},
+  {basem * cos(A3), basem * sin(A3), 0},
+  {basem * cos(A4), basem * sin(A4), 0},
+  {basem * cos(A5), basem * sin(A5), 0},
+  {basem * cos(A6), basem * sin(A6), 0},
 };
 
 /* IMU Data */
@@ -38,11 +55,11 @@ double compAngleX, compAngleY; // Calculated angle using a complementary filter 
 double kalAngleX, kalAngleY; // Calculated angle using a Kalman filter --> Stable
 
 uint32_t timer;
-uint8_t i2cData[14]; 
+uint8_t i2cData[14];
 
 
 // to limit pitch to +- 90 i.e the inputs from the accel
-#define RESTRICT_PITCH  
+#define RESTRICT_PITCH
 
 /* Stewart top has yaw rotation of pi/2
    Each base is pointing towards some other top
@@ -64,20 +81,15 @@ void setup() {
 
   TWBR = ((F_CPU / 400000UL) - 16) / 2;
 
-
-
-
-
-  
   i2cData[0] = 7; //1Khz frequency
-  i2cData[1] = 0x00; 
-  i2cData[2] = 0x00; 
-  i2cData[3] = 0x00; 
-  
-  while (i2cWrite(0x19, i2cData, 4, false)); 
-  while (i2cWrite(0x6B, 0x01, true)); 
+  i2cData[1] = 0x00;
+  i2cData[2] = 0x00;
+  i2cData[3] = 0x00;
+
+  while (i2cWrite(0x19, i2cData, 4, false));
+  while (i2cWrite(0x6B, 0x01, true));
   while (i2cRead(0x75, i2cData, 1));
-  if (i2cData[0] != 0x68) { 
+  if (i2cData[0] != 0x68) {
     Serial.print(F("Error reading sensor"));
     while (1);
   }
@@ -91,10 +103,10 @@ void setup() {
   accZ = (int16_t)((i2cData[4] << 8) | i2cData[5]);
 
 
-#ifdef RESTRICT_PITCH 
+#ifdef RESTRICT_PITCH
   double roll  = atan2(accY, accZ) * RAD_TO_DEG;
   double pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG;
-#else 
+#else
   double roll  = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
   double pitch = atan2(-accX, accZ) * RAD_TO_DEG;
 #endif
@@ -107,9 +119,9 @@ void setup() {
   compAngleY = pitch;
 
   timer = micros();
-  
-  for(int i=0;i<6;i++){
-    pwm.writeMicroseconds(i,1500);
+
+  for (int i = 0; i < 6; i++) {
+    pwm.writeMicroseconds(i, 1500);
   }
   Serial.println("\r\n\n Init .... ! \n\n\n");
   delay(4000);
@@ -122,7 +134,7 @@ void loop() {
   accX = (int16_t)((i2cData[0] << 8) | i2cData[1]);
   accY = (int16_t)((i2cData[2] << 8) | i2cData[3]);
   accZ = (int16_t)((i2cData[4] << 8) | i2cData[5]);
-//  tempRaw = (int16_t)((i2cData[6] << 8) | i2cData[7]);
+  //  tempRaw = (int16_t)((i2cData[6] << 8) | i2cData[7]);
   gyroX = (int16_t)((i2cData[8] << 8) | i2cData[9]);
   gyroY = (int16_t)((i2cData[10] << 8) | i2cData[11]);
   gyroZ = (int16_t)((i2cData[12] << 8) | i2cData[13]);;
@@ -130,10 +142,10 @@ void loop() {
   double dt = (double)(micros() - timer) / 1000000; // Calculate delta time
   timer = micros();
 
-#ifdef RESTRICT_PITCH 
+#ifdef RESTRICT_PITCH
   double roll  = atan2(accY, accZ) * RAD_TO_DEG;
   double pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG;
-#else 
+#else
   double roll  = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
   double pitch = atan2(-accX, accZ) * RAD_TO_DEG;
 #endif
@@ -183,38 +195,38 @@ void loop() {
   if (gyroYangle < -180 || gyroYangle > 180)
     gyroYangle = kalAngleY;
 
-//  Serial.print(pitch);Serial.println("   "+String(roll));
+  Serial.print(pitch);Serial.println("   "+String(roll));
 
-    
-//  float heave = mapfloat(analogRead(0),0,1023,9.00,14.25);
-  float s_heave = 11.625;//midpoint
 
-//  float surge = mapfloat(analogRead(0),0,1023,-4.0,4.0);
+  //  float heave = mapfloat(analogRead(0),0,1023,9.00,14.25);
+  float s_heave = 9.8;//midpoint
+
+  //  float surge = mapfloat(analogRead(0),0,1023,-4.0,4.0);
   float s_surge = 0;
 
   float s_sway = 0;
 
-  
-//  float s_roll = mapfloat(analogRead(0),0,1023,-21.0,21.0);
-  float s_roll = -kalAngleX;
 
-//  float s_pitch = mapfloat(analogRead(0),0,1023,-21.0,21.0);
-  float s_pitch = kalAngleY;
+  //  float s_roll = mapfloat(analogRead(0),0,1023,-21.0,21.0);
+  float s_roll = kalAngleY;
 
-//  float s_yaw = mapfloat(analogRead(0),0,1023,-37.5,37.5);
+  //  float s_pitch = mapfloat(analogRead(0),0,1023,-21.0,21.0);
+  float s_pitch = kalAngleX;
+
+  //  float s_yaw = mapfloat(analogRead(0),0,1023,-37.5,37.5);
   float s_yaw = 0;
 
-  
+
   float T[3] = {s_surge, s_sway, s_heave};
   float R[3] = {s_roll * M_PI / 180, s_pitch * M_PI / 180, s_yaw * M_PI / 180};
 
   float qk[6][3] = {
-    { -cos(M_PI / 12)*topm + T[0], -sin(M_PI / 12)*topm + T[1], T[2]},
-    { -cos(7 * M_PI / 12)*topm + T[0], -sin(7 * M_PI / 12)*topm + T[1], T[2]},
-    { -cos(9 * M_PI / 12)*topm + T[0], -sin(9 * M_PI / 12)*topm + T[1], T[2]},
-    { -cos(15 * M_PI / 12)*topm + T[0], -sin(15 * M_PI / 12)*topm + T[1], T[2]},
-    { -cos(17 * M_PI / 12)*topm + T[0], -sin(17 * M_PI / 12)*topm + T[1], T[2]},
-    { -cos(23 * M_PI / 12)*topm + T[0], -sin(23 * M_PI / 12)*topm + T[1], T[2]},
+    { -cos(A1)*topm + T[0], -sin(A1)*topm + T[1], T[2]},
+    { -cos(A2)*topm + T[0], -sin(A2)*topm + T[1], T[2]},
+    { -cos(A3)*topm + T[0], -sin(A3)*topm + T[1], T[2]},
+    { -cos(A4)*topm + T[0], -sin(A4)*topm + T[1], T[2]},
+    { -cos(A5)*topm + T[0], -sin(A5)*topm + T[1], T[2]},
+    { -cos(A6)*topm + T[0], -sin(A6)*topm + T[1], T[2]},
   };
 
   float pk[6][3];
@@ -280,35 +292,35 @@ void loop() {
   /*
      Debug
   */
-  
-//  for (int i = 0; i < 6; i++) {
-//    for (int j = 0; j < 3; j++) {
-//      Serial.print(String(lk[i][j]) + " ");
-//    } Serial.println(); Serial.println();
-//  }
+
+  //  for (int i = 0; i < 6; i++) {
+  //    for (int j = 0; j < 3; j++) {
+  //      Serial.print(String(lk[i][j]) + " ");
+  //    } Serial.println(); Serial.println();
+  //  }
 
   float len[6];
   for (int i = 0; i < 6; i++) {
     len[i] = norm(lk[i]) - 10.2;
-//    Serial.println(len[i]);
+    //    Serial.println(len[i]);
   }
-  
+
   /* Actuator closed length = 102mm
-   *  Stroke length = 50mm
-   *  This whole file operates calcualations in cm.
-   *  Therefore all norm outputs are to be calculated between 10.2cm and 15.2cm
-   *  As implied -> stroke length(cm) = norm_output(cm) - 10.2cm;
-   *  And stroke ->  0 - 5cm --> 1000uS to 2000uS
-   */
+      Stroke length = 50mm
+      This whole file operates calcualations in cm.
+      Therefore all norm outputs are to be calculated between 10.2cm and 15.2cm
+      As implied -> stroke length(cm) = norm_output(cm) - 10.2cm;
+      And stroke ->  0 - 5cm --> 1000uS to 2000uS
+  */
 
-   int pulses[6];
-   for(int i=0;i<6;i++){
-    pulses[i] = mapfloat(len[i],0.0,5.0,1000,2000);
-//    Serial.print(String(pulses[i])+"  ");
-    pwm.writeMicroseconds(i,pulses[i]);
-   }//Serial.println();
+  int pulses[6];
+  for (int i = 0; i < 6; i++) {
+    pulses[i] = mapfloat(len[i], 0.0, 5.0, 1000, 2000);
+    //    Serial.print(String(pulses[i])+"  ");
+    pwm.writeMicroseconds(i, pulses[i]);
+  }//Serial.println();
 
-  
+
 }
 
 float norm(float vector[3]) {
@@ -317,7 +329,7 @@ float norm(float vector[3]) {
 
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
 {
- return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 
@@ -356,9 +368,9 @@ uint8_t i2cRead(uint8_t registerAddress, uint8_t *data, uint8_t nbytes) {
         data[i] = Wire.read();
       else {
         Serial.println(F("i2cRead timeout"));
-        return 5; 
+        return 5;
       }
     }
   }
-  return 0; 
+  return 0;
 }

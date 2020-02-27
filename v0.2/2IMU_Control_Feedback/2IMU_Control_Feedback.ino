@@ -37,9 +37,35 @@ uint32_t timer;
 uint32_t timer1;
 uint8_t i2cData[14]; // Buffer for I2C data
 
+const float topm = 7.727;
+const float basem = 10.3748;
+
+//Unit norm quaternion - for all rotations
+Quaternion q;
+
+#define A1 0
+#define A2 9.95*M_PI/180
+#define A3 120*M_PI/180
+#define A4 129.95*M_PI/180
+#define A5 240*M_PI/180
+#define A6 249.95*M_PI/180
+
+const float bk[6][3] = {
+  {basem * cos(A1), basem * sin(A1), 0},
+  {basem * cos(A2), basem * sin(A2), 0},
+  {basem * cos(A3), basem * sin(A3), 0},
+  {basem * cos(A4), basem * sin(A4), 0},
+  {basem * cos(A5), basem * sin(A5), 0},
+  {basem * cos(A6), basem * sin(A6), 0},
+};
 
 void setup() {
   Serial.begin(115200);
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50);
+  delay(10);
+  
   Wire.begin();
 #if ARDUINO >= 157
   Wire.setClock(400000UL); // Set I2C frequency to 400kHz
@@ -118,6 +144,12 @@ void setup() {
   compAngleX1 = roll1;
   compAngleY1 = pitch1;
   timer1 = micros();
+
+  for (int i = 0; i < 6; i++) {
+    pwm.writeMicroseconds(i, 1500);
+  }
+  Serial.println("\r\n\n Init .... ! \n\n\n");
+  delay(4000);
 
 }
 
@@ -265,13 +297,163 @@ void loop() {
   if (gyroYangle1 < -180 || gyroYangle1 > 180)
     gyroYangle1 = kalAngleY1;
 
-  Serial.print("1\t");
-  Serial.print(kalAngleX);Serial.print("\t");
-  Serial.print(kalAngleY);Serial.print("\t");
-  Serial.print("2\t");
-  Serial.print(kalAngleX1);Serial.print("\t");
-  Serial.print(kalAngleY1);Serial.println("\n");
+  Serial.print("1 ");
+  Serial.print(kalAngleX);Serial.print(" ");
+  Serial.print(kalAngleY);Serial.print(" ");
+  Serial.print("2 ");
+  Serial.print(kalAngleX1);Serial.print(" ");
+  Serial.print(kalAngleY1);Serial.print(" ");
+
+  /*
+   * FEEDBACK
+   * P Controller
+   * 
+   */
+
+  float error_X = kalAngleX + kalAngleX1;
+  float error_Y = kalAngleY + kalAngleY1;
+  Serial.print(String(error_X)+" ");
+  Serial.println(String(error_Y)+" ");
   
+  
+
+  /*
+   * INVERSE KINEMATICS
+   */
+
+//  float heave = mapfloat(analogRead(0),0,1023,9.00,14.25);
+  float s_heave = 9.8;//midpoint
+
+  //  float surge = mapfloat(analogRead(0),0,1023,-4.0,4.0);
+  float s_surge = 0;
+
+  float s_sway = 0;
+
+
+  //  float s_roll = mapfloat(analogRead(0),0,1023,-21.0,21.0);
+  float s_roll = 1.1*error_Y;
+
+  //  float s_pitch = mapfloat(analogRead(0),0,1023,-21.0,21.0);
+  float s_pitch = 1.1*error_X;
+
+  //  float s_yaw = mapfloat(analogRead(0),0,1023,-37.5,37.5);
+  float s_yaw = 0;
+
+
+  float T[3] = {s_surge, s_sway, s_heave};
+  float R[3] = {s_roll * M_PI / 180, s_pitch * M_PI / 180, s_yaw * M_PI / 180};
+
+  float qk[6][3] = {
+    { -cos(A1)*topm + T[0], -sin(A1)*topm + T[1], T[2]},
+    { -cos(A2)*topm + T[0], -sin(A2)*topm + T[1], T[2]},
+    { -cos(A3)*topm + T[0], -sin(A3)*topm + T[1], T[2]},
+    { -cos(A4)*topm + T[0], -sin(A4)*topm + T[1], T[2]},
+    { -cos(A5)*topm + T[0], -sin(A5)*topm + T[1], T[2]},
+    { -cos(A6)*topm + T[0], -sin(A6)*topm + T[1], T[2]},
+  };
+
+  float pk[6][3];
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 3; j++) {
+      pk[i][j] = qk[i][j] - T[j];
+    }
+  }
+
+  Quaternion pk1(pk[0][0], pk[0][1], pk[0][2]);
+  Quaternion pk2(pk[1][0], pk[1][1], pk[1][2]);
+  Quaternion pk3(pk[2][0], pk[2][1], pk[2][2]);
+  Quaternion pk4(pk[3][0], pk[3][1], pk[3][2]);
+  Quaternion pk5(pk[4][0], pk[4][1], pk[4][2]);
+  Quaternion pk6(pk[5][0], pk[5][1], pk[5][2]);
+
+  q = q.from_euler_rotation(R[0], R[1], R[2]);
+
+  pk1 = q.rotate(pk1);
+  pk2 = q.rotate(pk2);
+  pk3 = q.rotate(pk3);
+  pk4 = q.rotate(pk4);
+  pk5 = q.rotate(pk5);
+  pk6 = q.rotate(pk6);
+
+  /*
+     Considering our earlier statement
+     L1 = P4 - B1
+     L2 = P5 - B2
+     L3 = P6 - B3
+     L4 = P1 - B4
+     L5 = P2 - B5
+     L6 = P3 - B6
+  */
+
+  float lk[6][3] = {{
+      T[0] + pk4.b - bk[0][0],
+      T[1] + pk4.c - bk[0][1],
+      T[2] + pk4.d - bk[0][2],
+    }, {
+      T[0] + pk5.b - bk[1][0],
+      T[1] + pk5.c - bk[1][1],
+      T[2] + pk5.d - bk[1][2],
+    }, {
+      T[0] + pk6.b - bk[2][0],
+      T[1] + pk6.c - bk[2][1],
+      T[2] + pk6.d - bk[2][2],
+    }, {
+      T[0] + pk1.b - bk[3][0],
+      T[1] + pk1.c - bk[3][1],
+      T[2] + pk1.d - bk[3][2],
+    }, {
+      T[0] + pk2.b - bk[4][0],
+      T[1] + pk2.c - bk[4][1],
+      T[2] + pk2.d - bk[4][2],
+    }, {
+      T[0] + pk3.b - bk[5][0],
+      T[1] + pk3.c - bk[5][1],
+      T[2] + pk3.d - bk[5][2],
+    }
+  };
+
+  /*
+     Debug
+  */
+
+  //  for (int i = 0; i < 6; i++) {
+  //    for (int j = 0; j < 3; j++) {
+  //      Serial.print(String(lk[i][j]) + " ");
+  //    } Serial.println(); Serial.println();
+  //  }
+
+  float len[6];
+  for (int i = 0; i < 6; i++) {
+    len[i] = norm(lk[i]) - 10.2;
+    //    Serial.println(len[i]);
+  }
+
+  /* Actuator closed length = 102mm
+      Stroke length = 50mm
+      This whole file operates calcualations in cm.
+      Therefore all norm outputs are to be calculated between 10.2cm and 15.2cm
+      As implied -> stroke length(cm) = norm_output(cm) - 10.2cm;
+      And stroke ->  0 - 5cm --> 1000uS to 2000uS
+  */
+
+  int pulses[6];
+  for (int i = 0; i < 6; i++) {
+    pulses[i] = mapfloat(len[i], 0.0, 5.0, 1000, 2000);
+    //    Serial.print(String(pulses[i])+"  ");
+    pwm.writeMicroseconds(i, pulses[i]);
+  }//Serial.println();
+
+  
+  
+}
+
+float norm(float vector[3]) {
+  return sqrt( sq(vector[0]) + sq(vector[1]) + sq(vector[2]));
+}
+
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 

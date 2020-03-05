@@ -37,9 +37,17 @@ uint32_t timer;
 uint32_t timer1;
 uint8_t i2cData[14]; // Buffer for I2C data
 
-const float topm = 7.727;
+const float topm = 8.8128;
 const float basem = 10.3748;
 
+const float Kp = 0.6;
+const float Kd = 33;
+
+float prevRoll = 0;
+float prevPitch = 0;
+float prevTime = 0;
+
+float globalTime = 0;
 //Unit norm quaternion - for all rotations
 Quaternion q;
 
@@ -148,7 +156,6 @@ void setup() {
   for (int i = 0; i < 6; i++) {
     pwm.writeMicroseconds(i, 1500);
   }
-  Serial.println("\r\n\n Init .... ! \n\n\n");
   delay(4000);
 
 }
@@ -297,23 +304,23 @@ void loop() {
   if (gyroYangle1 < -180 || gyroYangle1 > 180)
     gyroYangle1 = kalAngleY1;
 
-  Serial.print("1 ");
-  Serial.print(kalAngleX);Serial.print(" ");
-  Serial.print(kalAngleY);Serial.print(" ");
-  Serial.print("2 ");
-  Serial.print(kalAngleX1);Serial.print(" ");
-  Serial.print(kalAngleY1);Serial.print(" ");
+
+  Serial.print(kalAngleX);Serial.print(",");
+  Serial.print(kalAngleY);Serial.print(",");
+
+  Serial.print(kalAngleX1);Serial.print(",");
+  Serial.print(kalAngleY1);Serial.print(",");
 
   /*
    * FEEDBACK
-   * P Controller
+   * PD Controller
    * 
    */
 
   float error_X = kalAngleX + kalAngleX1;
   float error_Y = kalAngleY + kalAngleY1;
-  Serial.print(String(error_X)+" ");
-  Serial.println(String(error_Y)+" ");
+  Serial.print(String(error_X)+",");
+  Serial.print(String(error_Y)+",");
   
   
 
@@ -321,25 +328,25 @@ void loop() {
    * INVERSE KINEMATICS
    */
 
-//  float heave = mapfloat(analogRead(0),0,1023,9.00,14.25);
   float s_heave = 9.8;//midpoint
-
-  //  float surge = mapfloat(analogRead(0),0,1023,-4.0,4.0);
   float s_surge = 0;
-
   float s_sway = 0;
 
+  float now = micros()/1000000;
+  float speed_roll = (error_Y - prevRoll)/(now - prevTime);;
+  float speed_pitch = (error_X - prevPitch)/(now - prevTime);
 
-  //  float s_roll = mapfloat(analogRead(0),0,1023,-21.0,21.0);
-  float s_roll = 1.1*error_Y;
-
-  //  float s_pitch = mapfloat(analogRead(0),0,1023,-21.0,21.0);
-  float s_pitch = 1.1*error_X;
-
-  //  float s_yaw = mapfloat(analogRead(0),0,1023,-37.5,37.5);
+  float s_roll = Kp*error_Y - Kd*speed_roll;
+  float s_pitch = Kp*error_X - Kd*speed_pitch;
   float s_yaw = 0;
 
-
+  Serial.print(String(s_pitch)+",");
+  Serial.print(String(s_roll)+",");
+  
+  // Update
+  prevPitch = error_X;
+  prevRoll = error_Y;
+  
   float T[3] = {s_surge, s_sway, s_heave};
   float R[3] = {s_roll * M_PI / 180, s_pitch * M_PI / 180, s_yaw * M_PI / 180};
 
@@ -443,7 +450,8 @@ void loop() {
     pwm.writeMicroseconds(i, pulses[i]);
   }//Serial.println();
 
-  
+  globalTime += (millis()) / 1000;
+  Serial.println(globalTime);
   
 }
 

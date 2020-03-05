@@ -1,0 +1,5 @@
+{
+    "board": "arduino:avr:uno",
+    "port": "COM11",
+    "sketch": "v0.2\\2IMU_Control_Feedback\\2IMU_Control_Feedback.ino"
+}
